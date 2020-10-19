@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 90d06b6169c32fb6de6a9b1af060c9b8be6c56faf351d18f9efc8f5a5c6b48ca
+-- hash: 0e16196e6dd7166897370d140d106cecff99e6e8c5a921b0508337cf6133732a
 
 name:           infernal-bot
 version:        0.1.0.0
@@ -29,6 +29,7 @@ library
   exposed-modules:
       Infernal
       Infernal.Settings
+      Infernal.Utils
   other-modules:
       Paths_infernal_bot
   hs-source-dirs:
@@ -38,6 +39,7 @@ library
     , bytestring
     , discord-haskell
     , text
+    , transformers
     , unliftio
     , yaml
   default-language: Haskell2010
@@ -55,6 +57,7 @@ executable infernal-bot-exe
     , discord-haskell
     , infernal-bot
     , text
+    , transformers
     , unliftio
     , yaml
   default-language: Haskell2010
@@ -73,6 +76,7 @@ test-suite infernal-bot-test
     , discord-haskell
     , infernal-bot
     , text
+    , transformers
     , unliftio
     , yaml
   default-language: Haskell2010

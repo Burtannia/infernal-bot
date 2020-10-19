@@ -22,9 +22,11 @@ data UpdateLink = UpdateLink
     , channel :: Text
     } deriving Show
 
+type Response = Text
+
 data Command = Command
     { name :: Text
-    , response :: Text
+    , response :: Response
     } deriving Show
 
 instance FromJSON Settings where

@@ -26,6 +26,7 @@ dependencies:
 - text
 - yaml
 - bytestring
+- transformers
 
 library:
   source-dirs: src

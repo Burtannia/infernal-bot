@@ -21,18 +21,74 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
+- calamity >=0.1.30   && <0.1.31
+- data-default
+- data-flags
+- di
+- di-polysemy
+- generic-lens
+- lens
+- polysemy
+- polysemy-plugin
+- text
+- text-show
+- aeson
+- optparse-generic
+- random
 
 library:
   source-dirs: src
+  default-extensions:
+    - DataKinds
+    - DeriveAnyClass
+    - DeriveGeneric
+    - DerivingStrategies
+    - DerivingVia
+    - FlexibleContexts
+    - FlexibleInstances
+    - GADTs
+    - GeneralizedNewtypeDeriving
+    - LambdaCase
+    - MultiWayIf
+    - NumericUnderscores
+    - OverloadedLabels
+    - OverloadedStrings
+    - PartialTypeSignatures
+    - PolyKinds
+    - ScopedTypeVariables
+    - TemplateHaskell
+    - TupleSections
+    - TypeApplications
+    - TypeFamilies
+    - TypeOperators
+    - ViewPatterns
+  ghc-options:
+    - -O2
+    - -flate-specialise
+    - -fspecialise-aggressively
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wno-name-shadowing
+    - -Wno-partial-type-signatures
+    - -fplugin=Polysemy.Plugin
 
 executables:
   infernal-bot-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
+    - -O2
+    - -flate-specialise
+    - -fspecialise-aggressively
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -Wall
+    - -Wno-name-shadowing
+    - -Wno-partial-type-signatures
+    - -fplugin=Polysemy.Plugin
     dependencies:
     - infernal-bot
 
@@ -44,5 +100,6 @@ tests:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -fplugin=Polysemy.Plugin
     dependencies:
     - infernal-bot

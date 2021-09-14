@@ -1,6 +1,6 @@
 module Main where
 
-import Lib
+import qualified Infernal
 
 main :: IO ()
-main = someFunc
+main = Infernal.main

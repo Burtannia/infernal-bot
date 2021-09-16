@@ -35,6 +35,9 @@ dependencies:
 - aeson
 - optparse-generic
 - random
+- containers
+- time
+- df1
 
 library:
   source-dirs: src

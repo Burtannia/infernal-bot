@@ -11,14 +11,24 @@ import qualified Data.Aeson                as Aeson
 import           Data.Default
 import           Data.Flags                ((.+.))
 import           Data.Generics.Labels      ()
+import           Data.Maybe
 import           Data.Text.Lazy            (Text)
+import qualified Df1
 import qualified Di
 import           DiPolysemy
+import qualified DiPolysemy as DI (info, error)
 import qualified Polysemy                  as P
 import System.Exit
 import           Options.Generic hiding (Text)
+import Data.IntMap.Strict
 
+import Infernal.Challenge
 import Infernal.Config
+
+newtype ShowMsg a = ShowMsg a
+
+instance (Show a) => Df1.ToMessage (ShowMsg a) where
+    message (ShowMsg x) = Df1.message $ show x
 
 runBotWith :: Config -> IO ()
 runBotWith cfg = Di.new $ \di ->
@@ -28,22 +38,26 @@ runBotWith cfg = Di.new $ \di ->
     . runDiToIO di
     . runCacheInMemory
     . runMetricsNoop
+    . useConstantPrefix (cfg ^. #commandPrefix . lazy)
     . useFullContext
-    . useConstantPrefix "!"
     . runBotIO
         (BotToken (cfg ^. #botToken . lazy))
         (defaultIntents .+. intentGuildMembers)
-    $ do
+    $ do 
         info @Text "Bot starting up!"
-        _ <- react @'GuildMemberAddEvt $ \usr -> do
+        _ <- react @'GuildMemberAddEvt $ \mem -> do
             info @Text "User joined"
-            void . invoke $ AddGuildMemberRole (usr ^. #guildID) (usr ^. #id) (cfg ^. #verifiedRole)
-            edms <- invoke $ CreateDM usr
+            void . invoke $ AddGuildMemberRole (mem ^. #guildID) (mem ^. #id) (cfg ^. #verifiedRole)
+            edms <- invoke $ CreateDM mem
             case edms of
+                Left err -> DI.error $ ShowMsg err
                 Right dms -> do
-                    info @Text "DMing"
-                    void $ tell @Text dms "What's 9 + 10?"
-                Left err -> Prelude.error $ show err
+                    info @Text "Challenging user"
+                    mguild <- upgrade (mem ^. #guildID)
+                    let guildName = fromMaybe "the guild" $ fmap (^. #name) mguild
+                    challenge <- P.embed $
+                        mkChallenge (mem ^. #id) (mem ^. #guildID) (cfg ^. #challengeAttempts)
+                    void $ tell dms $ showChallenge guildName challenge
 
         addCommands $ do
             helpCommand

@@ -15,5 +15,9 @@ instance ParseRecord (CLIOptions Wrapped)
 data Config = Config
     { botToken :: Text
     , verifiedRole :: Snowflake Role
+    , commandPrefix :: Text
+    , challengeAttempts :: Int
+    , challengeEvictMins :: Int
+    , challengeEvictScanMins :: Int
     } deriving (Show, Eq, Generic)
       deriving anyclass (FromJSON, ToJSON)

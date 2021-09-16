@@ -61,8 +61,10 @@ library
       aeson
     , base >=4.7 && <5
     , calamity ==0.1.30.*
+    , containers
     , data-default
     , data-flags
+    , df1
     , di
     , di-polysemy
     , generic-lens
@@ -73,6 +75,7 @@ library
     , random
     , text
     , text-show
+    , time
   default-language: Haskell2010
 
 executable infernal-bot-exe
@@ -86,8 +89,10 @@ executable infernal-bot-exe
       aeson
     , base >=4.7 && <5
     , calamity ==0.1.30.*
+    , containers
     , data-default
     , data-flags
+    , df1
     , di
     , di-polysemy
     , generic-lens
@@ -99,6 +104,7 @@ executable infernal-bot-exe
     , random
     , text
     , text-show
+    , time
   default-language: Haskell2010
 
 test-suite infernal-bot-test
@@ -113,8 +119,10 @@ test-suite infernal-bot-test
       aeson
     , base >=4.7 && <5
     , calamity ==0.1.30.*
+    , containers
     , data-default
     , data-flags
+    , df1
     , di
     , di-polysemy
     , generic-lens
@@ -126,4 +134,5 @@ test-suite infernal-bot-test
     , random
     , text
     , text-show
+    , time
   default-language: Haskell2010

@@ -35,7 +35,7 @@ dependencies:
 - aeson
 - optparse-generic
 - random
-- containers
+- hashtables
 - time
 - df1
 

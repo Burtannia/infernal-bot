@@ -61,13 +61,13 @@ library
       aeson
     , base >=4.7 && <5
     , calamity ==0.1.30.*
-    , containers
     , data-default
     , data-flags
     , df1
     , di
     , di-polysemy
     , generic-lens
+    , hashtables
     , lens
     , optparse-generic
     , polysemy
@@ -89,13 +89,13 @@ executable infernal-bot-exe
       aeson
     , base >=4.7 && <5
     , calamity ==0.1.30.*
-    , containers
     , data-default
     , data-flags
     , df1
     , di
     , di-polysemy
     , generic-lens
+    , hashtables
     , infernal-bot
     , lens
     , optparse-generic
@@ -119,13 +119,13 @@ test-suite infernal-bot-test
       aeson
     , base >=4.7 && <5
     , calamity ==0.1.30.*
-    , containers
     , data-default
     , data-flags
     , df1
     , di
     , di-polysemy
     , generic-lens
+    , hashtables
     , infernal-bot
     , lens
     , optparse-generic

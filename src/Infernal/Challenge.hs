@@ -8,11 +8,6 @@ import Data.Time.Clock (UTCTime, getCurrentTime)
 import           GHC.Generics
 import System.Random
 
--- IntMap (Snowflake MemberID) [ChallengeStatus]
--- ChallengeStatus = (Snowflake MemberID) (Snowflake GuildID) (Challenge) (AttemptsRemaining) (TimeChallenged)
-
--- every $evictScanTime minutes iterate the map and kick users that haven't responded to the challenge in $evictTime
-
 type Question = (Int, Int)
 
 data Challenge = Challenge

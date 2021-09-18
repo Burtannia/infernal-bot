@@ -11,8 +11,8 @@ import System.Random
 type Question = (Int, Int)
 
 data Challenge = Challenge
-    { memberId :: Snowflake User
-    , guildId :: Snowflake Guild
+    { memberID :: Snowflake User
+    , guildID :: Snowflake Guild
     , question :: Question
     , attemptsRemaining :: Int
     , timeChallenged :: UTCTime
@@ -33,6 +33,13 @@ mkQuestion :: IO Question
 mkQuestion = bisequence (rand, rand)
     where
         rand = getStdRandom $ randomR (1, 20)
+
+checkResponse :: Text -> Challenge -> Bool
+checkResponse msg c = n == x + y
+    where
+        n = read $ unpack msg
+        x = fst (c ^. #question)
+        y = snd (c ^. #question)
 
 showChallenge :: Text -> Challenge -> Text
 showChallenge gName c =

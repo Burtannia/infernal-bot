@@ -68,9 +68,7 @@ runBotWith cfg = Di.new $ \di ->
         challenges <- P.embed mkChallengeMap
 
         _ <- react @'GuildMemberAddEvt $ \mem -> do
-            info @Text "User joined"
-            void . invoke $ AddGuildMemberRole (mem ^. #guildID) (mem ^. #id) (cfg ^. #verifiedRole)
-            info @Text "Challenging user"
+            info @Text "Member joined, sending challenge"
             mguild <- upgrade (mem ^. #guildID)
             let guildName = fromMaybe "the guild" $ fmap (^. #name) mguild
             challenge <- P.embed $
@@ -83,12 +81,26 @@ runBotWith cfg = Di.new $ \di ->
             muser <- upgrade (msg ^. #author)
             let isDM = maybe False channelIsDM mchannel
             for_ muser $ \user ->
-                when (isDM && isHuman user) $ do              
+                when (isDM && isHuman user) $ do
                     info @Text "DM received"
-                    -- if challenge available for user
-                        -- check response
-                        -- update hashmap
-                        -- if X failures, kick
+                    mc <- P.embed $ H.lookup challenges (user ^. #id)
+                    for_ mc $ \challenge -> do
+                        if checkResponse (msg ^. #content) challenge
+                            then do
+                                info @Text "Correct response received"
+                                mguild <- upgrade (challenge ^. #guildID)
+                                case mguild of
+                                    Nothing -> do
+                                        warning @Text "Guild from challenge was nothing"
+                                    Just g -> do
+                                        void . tell msg $ "Thank you! You are now verified in " <> (g ^. #name) <> "!"
+                                        void . invoke $ AddGuildMemberRole (challenge ^. #guildID) (user ^. #id) (cfg ^. #verifiedRole)
+                                        P.embed $ H.delete challenges (user ^. #id)
+                            else do
+                                info @Text "Incorrect response received"
+                                void $ tell @Text msg "Incorrect, you have " <> <> " attempts remaining."
+                                -- update hashmap
+                                -- if X failures, kick
 
         addCommands $ do
             helpCommand

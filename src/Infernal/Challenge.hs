@@ -3,9 +3,11 @@ module Infernal.Challenge where
 import Calamity
 import           Control.Lens
 import Data.Bitraversable
+import Data.Maybe (fromMaybe)
 import Data.Text.Lazy
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import           GHC.Generics
+import Text.Read (readMaybe)
 import System.Random
 
 type Question = (Int, Int)
@@ -35,9 +37,10 @@ mkQuestion = bisequence (rand, rand)
         rand = getStdRandom $ randomR (1, 20)
 
 checkResponse :: Text -> Challenge -> Bool
-checkResponse msg c = n == x + y
+checkResponse msg c = fromMaybe False $
+    fmap (\n -> n == x + y) mn
     where
-        n = read $ unpack msg
+        mn = readMaybe $ unpack msg
         x = fst (c ^. #question)
         y = snd (c ^. #question)
 

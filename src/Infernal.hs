@@ -11,7 +11,7 @@ import qualified Data.Aeson                as Aeson
 import           Data.Flags                ((.+.))
 import           Data.Generics.Labels      ()
 import           Data.Maybe
-import           Data.Text.Lazy            (Text)
+import           Data.Text.Lazy
 import Data.Foldable (for_)
 import qualified Df1
 import qualified Di
@@ -49,6 +49,9 @@ channelIsDM _ = False
 
 isHuman :: User -> Bool
 isHuman user = fromMaybe True (user ^. #bot)
+
+tshow :: Show a => a -> Text
+tshow = pack . show
 
 runBotWith :: Config -> IO ()
 runBotWith cfg = Di.new $ \di ->
@@ -98,9 +101,16 @@ runBotWith cfg = Di.new $ \di ->
                                         P.embed $ H.delete challenges (user ^. #id)
                             else do
                                 info @Text "Incorrect response received"
-                                void $ tell @Text msg "Incorrect, you have " <> <> " attempts remaining."
-                                -- update hashmap
-                                -- if X failures, kick
+                                let remaining = (challenge ^. #attemptsRemaining) - 1
+                                if remaining == 0
+                                    then do
+                                        info @Text "Challenge failure, attempts exhausted"
+                                        void $ tell @Text msg "Incorrect, you are out of attempts and will now be kicked."
+                                        void . invoke $ RemoveGuildMember (challenge ^. #guildID) (user ^. #id)
+                                    else do
+                                        info @Text "Updating attempts"
+                                        void $ tell @Text msg $ "Incorrect, you have " <> tshow remaining <> " attempts remaining."
+                                        P.embed $ H.insert challenges (user ^. #id) (challenge & #attemptsRemaining .~ remaining)
 
         addCommands $ do
             helpCommand

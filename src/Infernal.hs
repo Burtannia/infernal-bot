@@ -143,6 +143,10 @@ runBotWith cfg chvar = Di.new $ \di ->
             challenge <- P.embed $ newChallenge chvar cfg mem
             void . tell mem $ showChallenge guildName challenge
 
+        _ <- react @'GuildMemberRemoveEvt $ \mem -> do
+            info @Text "Member left/removed"
+            P.embed $ deleteChallenge chvar (mem ^. #id)
+
         _ <- react @'MessageCreateEvt $ \msg -> do
             mchannel <- upgrade (msg ^. #channelID)
             muser <- upgrade (msg ^. #author)
@@ -172,6 +176,7 @@ runBotWith cfg chvar = Di.new $ \di ->
                                         void $ tell @Text msg
                                             "Incorrect, you are out of attempts and will now be kicked."
                                         void . invoke $ RemoveGuildMember (challenge ^. #guildID) (user ^. #id)
+                                        -- Challenge is removed via GuildMemberRemove event handler
                                     else do
                                         info @Text "Updating attempts"
                                         void $ tell @Text msg $

@@ -56,7 +56,7 @@ library
       TypeFamilies
       TypeOperators
       ViewPatterns
-  ghc-options: -O2 -flate-specialise -fspecialise-aggressively -threaded -rtsopts -with-rtsopts=-N -Wall -Wno-name-shadowing -Wno-partial-type-signatures -fplugin=Polysemy.Plugin
+  ghc-options: -O2 -flate-specialise -fspecialise-aggressively -Wall -Wno-name-shadowing -Wno-partial-type-signatures -fplugin=Polysemy.Plugin
   build-depends:
       aeson
     , base >=4.7 && <5

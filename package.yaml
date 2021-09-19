@@ -69,9 +69,6 @@ library:
     - -O2
     - -flate-specialise
     - -fspecialise-aggressively
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
     - -Wall
     - -Wno-name-shadowing
     - -Wno-partial-type-signatures

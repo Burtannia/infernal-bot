@@ -5,10 +5,12 @@ import           Control.Lens
 import Data.Bitraversable
 import Data.Maybe (fromMaybe)
 import Data.Text.Lazy
-import Data.Time.Clock (UTCTime, getCurrentTime)
+import Data.Time.Clock (UTCTime, addUTCTime, getCurrentTime)
 import           GHC.Generics
 import Text.Read (readMaybe)
 import System.Random
+
+import Infernal.Config
 
 type Question = (Int, Int)
 
@@ -17,19 +19,21 @@ data Challenge = Challenge
     , guildID :: Snowflake Guild
     , question :: Question
     , attemptsRemaining :: Int
-    , timeChallenged :: UTCTime
+    , expiry :: UTCTime
     } deriving (Show, Generic)
 
-mkChallenge :: (Snowflake User)
+mkChallenge :: Config
+    -> (Snowflake User)
     -> (Snowflake Guild)
-    -> Int
     -> IO Challenge
-mkChallenge user guild attempts = Challenge
+mkChallenge config user guild = Challenge
     <$> pure user
     <*> pure guild
     <*> mkQuestion
-    <*> pure attempts
-    <*> getCurrentTime
+    <*> pure (config ^. #challengeAttempts)
+    <*> fmap (addUTCTime allowance) getCurrentTime
+    where
+        allowance = fromInteger $ toInteger (config ^. #challengeEvictMins) * 60
 
 mkQuestion :: IO Question
 mkQuestion = bisequence (rand, rand)

@@ -38,6 +38,7 @@ dependencies:
 - hashtables
 - time
 - df1
+- unboxing-vector
 
 library:
   source-dirs: src

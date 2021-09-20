@@ -5,15 +5,17 @@ import           Calamity.Cache.InMemory
 import           Calamity.Commands
 import           Calamity.Commands.Context (useFullContext)
 import           Calamity.Metrics.Noop
+import qualified Calamity.Internal.SnowflakeMap as SM
 import           Control.Lens
 import           Control.Monad
 import qualified Data.Aeson                as Aeson
-import           Data.Flags                ((.+.))
+import           Data.Flags                ((.+.), containsAll)
 import           Data.Generics.Labels      ()
 import           Data.Maybe
 import           Data.Text.Lazy
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Foldable (for_)
+import qualified Data.Vector.Unboxing as V (elem, notElem)
 import qualified Df1
 import qualified Di
 import           DiPolysemy
@@ -132,7 +134,7 @@ runBotWith cfg chvar = Di.new $ \di ->
     . useFullContext
     . runBotIO
         (BotToken (cfg ^. #botToken . lazy))
-        (defaultIntents .+. intentGuildMembers)
+        (defaultIntents .+. intentGuildMembers .+. intentGuildPresences)
     $ do 
         info @Text "Bot starting up!"
 
@@ -187,4 +189,41 @@ runBotWith cfg chvar = Di.new $ \di ->
                                             (challenge & #attemptsRemaining .~ remaining)
 
         addCommands $ do
+            let vRole = cfg ^. #verifiedRole
             helpCommand
+            command @'[Named "user" (Snowflake User)] "verify" $
+                \ctx userID -> case (ctx ^. #guild) of
+                    Just guild -> do
+                        info @Text "Manually verifying user"
+                        void . invoke $ AddGuildMemberRole guild userID vRole
+                    Nothing -> do
+                        info @Text "Can only verify users in guilds."
+                        void $ tell @Text ctx "Can only verify users in guilds."
+            command @'[] "verifyAll" $
+                \ctx -> case (ctx ^. #guild) of
+                    Just guild -> do
+                        hasPerm <- canVerify (ctx ^. #member)
+                        
+                        when (not hasPerm) $ do
+                            info @Text "ManageRole permission not found."
+                            void $ tell @Text ctx "Permission Denied"
+
+                        when hasPerm $ do
+                            info @Text "Manually verifying all users"
+                            P.embed $ print $ SM.toList (guild ^. #members)
+                            flip mapM_ (SM.elems (guild ^. #members)) $ \mem -> do
+                                info @Text "For each member"
+                                if vRole `V.notElem` (mem ^. #roles)
+                                    then do
+                                        info @Text "Add verified role"
+                                        void . invoke $ AddGuildMemberRole guild (mem ^. #id) vRole
+                                    else info @Text "Already had verified role"
+                    Nothing -> do
+                        info @Text "Can only verify users in guilds."
+                        void $ tell @Text ctx "Can only verify users in guilds."
+
+canVerify :: BotC r => Maybe Member -> P.Sem r Bool
+canVerify Nothing = return False
+canVerify (Just mem) = do
+    perms <- permissionsIn' (mem ^. #guildID) mem
+    return $ perms `containsAll` manageRoles

@@ -20,6 +20,7 @@ import qualified Df1
 import qualified Di
 import           DiPolysemy
 import qualified Polysemy                  as P
+import qualified Polysemy.Async            as P
 import System.Exit
 import           Options.Generic hiding (Text)
 import qualified Data.HashTable.IO as H
@@ -50,7 +51,6 @@ main = do
         Nothing -> die "Error: no config specified"
     cfg <- Aeson.eitherDecodeFileStrict path >>= either die pure
     chvar <- mkChallengeMap >>= newMVar
-    _ <- forkIO $ evictThread cfg chvar
     runBotWith cfg chvar
 
 minsToMicroSeconds :: Int -> Int
@@ -58,21 +58,6 @@ minsToMicroSeconds mins = mins * 60 * 1000 * 1000
 
 expired :: Challenge -> UTCTime -> Bool
 expired challenge now = (challenge ^. #expiry) >= now
-
-evictThread :: Config -> MVar ChallengeMap -> IO ()
-evictThread cfg chvar = Di.new $ \di ->
-    void
-    . P.runFinal
-    . P.embedToFinal @IO
-    . runDiToIO di
-    . runCacheInMemory
-    . runMetricsNoop
-    . useConstantPrefix (cfg ^. #commandPrefix . lazy)
-    . useFullContext
-    . runBotIO
-        (BotToken (cfg ^. #botToken . lazy))
-        (defaultIntents .+. intentGuildMembers)
-    $ evictLoop chvar (cfg ^. #challengeEvictScanMins)
 
 evictLoop :: BotC r => MVar ChallengeMap -> Int -> P.Sem r ()
 evictLoop chvar sleepMins = do
@@ -136,6 +121,8 @@ runBotWith cfg chvar = Di.new $ \di ->
     $ do 
         info @Text "Bot starting up!"
 
+        P.asyncToIOFinal $ P.async $ evictLoop chvar (cfg ^. #challengeEvictScanMins)
+
         _ <- react @'GuildMemberAddEvt $ \mem -> do
             info @Text $ "Member " <> showtl (mem ^. #id) <> " joined, sending challenge"
             mguild <- upgrade (mem ^. #guildID)
@@ -174,7 +161,7 @@ runBotWith cfg chvar = Di.new $ \di ->
                                     then do
                                         info @Text "Challenge failure, attempts exhausted"
                                         void $ tell @Text msg
-                                            "Incorrect, you are out of attempts and will now be kicked."
+                                            "Incorrect, you are out of attempts and will now be kicked from the server."
                                         void . invoke $ RemoveGuildMember (challenge ^. #guildID) (user ^. #id)
                                         -- Challenge is removed via GuildMemberRemove event handler
                                     else do

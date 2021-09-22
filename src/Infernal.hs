@@ -67,12 +67,13 @@ evictLoop chvar sleepMins = do
 
 evictExpired :: BotC r => MVar ChallengeMap -> P.Sem r ()
 evictExpired chvar = do
-    info @Text "Evicting"
+    info @Text "Evicting Starting"
     now <- P.embed getCurrentTime
     chs <- P.embed $ withMVar chvar H.toList
     let toEvicts = [ (k,v) | (k,v) <- chs, v ^. #expiry >= now ]
     chs' <- P.embed $ takeMVar chvar
     flip mapM_ toEvicts $ \(k,v) -> do
+        info @Text $ "Evicting " <> showtl k
         P.embed $ H.delete chs' k
         void . tell @Text k $ "You took too long to respond and will now be kicked."
         void . invoke $ RemoveGuildMember (v ^. #guildID) k

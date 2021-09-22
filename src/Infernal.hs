@@ -85,7 +85,7 @@ channelIsDM (DMChannel' _) = True
 channelIsDM _ = False
 
 isHuman :: User -> Bool
-isHuman user = fromMaybe True (user ^. #bot)
+isHuman user = fromMaybe True (not <$> user ^. #bot)
 
 newChallenge :: MVar ChallengeMap -> Config -> Member -> IO Challenge
 newChallenge chvar cfg mem = do

@@ -1,35 +1,50 @@
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
 module Infernal where
 
-import           Calamity
-import           Calamity.Cache.InMemory
-import           Calamity.Commands
-import           Calamity.Commands.Context (useFullContext)
-import           Calamity.Metrics.Noop
+import           Calamity                       (BotC, Channel (DMChannel'),
+                                                 EventType (GuildMemberAddEvt, GuildMemberRemoveEvt, MessageCreateEvt),
+                                                 GuildRequest (AddGuildMemberRole, RemoveGuildMember),
+                                                 Member,
+                                                 PermissionsIn' (permissionsIn'),
+                                                 Snowflake, Token (BotToken),
+                                                 Upgradeable (upgrade), User,
+                                                 defaultIntents,
+                                                 intentGuildMembers,
+                                                 intentGuildPresences, invoke,
+                                                 manageRoles, react, runBotIO,
+                                                 tell)
+import           Calamity.Cache.InMemory        (runCacheInMemory)
+import           Calamity.Commands              (Named, addCommands, command,
+                                                 helpCommand, useConstantPrefix)
+import           Calamity.Commands.Context      (useFullContext)
 import qualified Calamity.Internal.SnowflakeMap as SM
-import           Control.Lens
-import           Control.Monad
-import qualified Data.Aeson                as Aeson
-import           Data.Flags                ((.+.), containsAll)
-import           Data.Generics.Labels      ()
-import           Data.Maybe
-import           Data.Text.Lazy
-import Data.Time.Clock (UTCTime, getCurrentTime)
-import Data.Foldable (for_)
-import qualified Data.Vector.Unboxing as V (elem, notElem)
+import           Calamity.Metrics.Noop          (runMetricsNoop)
+import           Control.Concurrent             (MVar, newMVar, putMVar,
+                                                 takeMVar, threadDelay,
+                                                 withMVar)
+import           Control.Lens                   (lazy, (&), (.~), (^.))
+import           Control.Monad                  (forM_, void, when)
+import qualified Data.Aeson                     as Aeson
+import           Data.Flags                     (containsAll, (.+.))
+import           Data.Foldable                  (for_)
+import           Data.Generics.Labels           ()
+import qualified Data.HashTable.IO              as H
+import           Data.Text.Lazy                 (Text)
+import           Data.Time.Clock                (UTCTime, getCurrentTime)
+import qualified Data.Vector.Unboxing           as V (notElem)
 import qualified Df1
 import qualified Di
-import           DiPolysemy
-import qualified Polysemy                  as P
-import qualified Polysemy.Async            as P
-import System.Exit
-import           Options.Generic hiding (Text)
-import qualified Data.HashTable.IO as H
-import Control.Concurrent.MVar
-import Control.Concurrent
-import TextShow (showtl)
+import           DiPolysemy                     (debug, info, runDiToIO,
+                                                 warning)
+import           Options.Generic                (unwrapRecord)
+import qualified Polysemy                       as P
+import qualified Polysemy.Async                 as P
+import           System.Exit                    (die)
+import           TextShow                       (showtl)
 
-import Infernal.Challenge
-import Infernal.Config
+import           Infernal.Challenge             (Challenge, checkResponse,
+                                                 mkChallenge, showChallenge)
+import           Infernal.Config                (CLIOptions, Config)
 
 type HashMap k v = H.BasicHashTable k v
 
@@ -48,7 +63,7 @@ main = do
     opts <- unwrapRecord @_ @CLIOptions "InfernalBot"
     path <- case opts ^. #config of
         Just path -> pure path
-        Nothing -> die "Error: no config specified"
+        Nothing   -> die "Error: no config specified"
     cfg <- Aeson.eitherDecodeFileStrict path >>= either die pure
     chvar <- mkChallengeMap >>= newMVar
     runBotWith cfg chvar
@@ -72,7 +87,7 @@ evictExpired chvar = do
     chs <- P.embed $ withMVar chvar H.toList
     let toEvicts = [ (k,v) | (k,v) <- chs, v ^. #expiry >= now ]
     chs' <- P.embed $ takeMVar chvar
-    flip mapM_ toEvicts $ \(k,v) -> do
+    forM_ toEvicts $ \(k,v) -> do
         info @Text $ "Evicting " <> showtl k
         P.embed $ H.delete chs' k
         void . tell @Text k $ "You took too long to respond and will now be kicked."
@@ -82,10 +97,10 @@ evictExpired chvar = do
 
 channelIsDM :: Channel -> Bool
 channelIsDM (DMChannel' _) = True
-channelIsDM _ = False
+channelIsDM _              = False
 
 isHuman :: User -> Bool
-isHuman user = fromMaybe True (not <$> user ^. #bot)
+isHuman user = maybe True not (user ^. #bot)
 
 newChallenge :: MVar ChallengeMap -> Config -> Member -> IO Challenge
 newChallenge chvar cfg mem = do
@@ -100,11 +115,11 @@ insertChallenge chvar userID ch =
 
 lookupChallenge :: MVar ChallengeMap -> Snowflake User -> IO (Maybe Challenge)
 lookupChallenge chvar userID =
-    withMVar chvar $ (flip H.lookup) userID
-    
+    withMVar chvar $ flip H.lookup userID
+
 deleteChallenge :: MVar ChallengeMap -> Snowflake User -> IO ()
 deleteChallenge chvar userID =
-    withMVar chvar $ (flip H.delete) userID
+    withMVar chvar $ flip H.delete userID
 
 runBotWith :: Config -> MVar ChallengeMap -> IO ()
 runBotWith cfg chvar = Di.new $ \di ->
@@ -119,23 +134,23 @@ runBotWith cfg chvar = Di.new $ \di ->
     . runBotIO
         (BotToken (cfg ^. #botToken . lazy))
         (defaultIntents .+. intentGuildMembers .+. intentGuildPresences)
-    $ do 
+    $ do
         info @Text "Bot starting up!"
 
         P.asyncToIOFinal $ P.async $ evictLoop chvar (cfg ^. #challengeEvictScanMins)
 
-        _ <- react @'GuildMemberAddEvt $ \mem -> do
+        react @'GuildMemberAddEvt $ \mem -> do
             info @Text $ "Member " <> showtl (mem ^. #id) <> " joined, sending challenge"
             mguild <- upgrade (mem ^. #guildID)
-            let guildName = fromMaybe "the guild" $ fmap (^. #name) mguild
+            let guildName = maybe "the guild" (^. #name) mguild
             challenge <- P.embed $ newChallenge chvar cfg mem
             void . tell mem $ showChallenge guildName challenge
 
-        _ <- react @'GuildMemberRemoveEvt $ \mem -> do
+        react @'GuildMemberRemoveEvt $ \mem -> do
             info @Text $ "Member " <> showtl (mem ^. #id) <> " left/removed"
             P.embed $ deleteChallenge chvar (mem ^. #id)
 
-        _ <- react @'MessageCreateEvt $ \msg -> do
+        react @'MessageCreateEvt $ \msg -> do
             mchannel <- upgrade (msg ^. #channelID)
             muser <- upgrade (msg ^. #author)
             let isDM = maybe False channelIsDM mchannel
@@ -176,34 +191,38 @@ runBotWith cfg chvar = Di.new $ \di ->
 
         addCommands $ do
             let vRole = cfg ^. #verifiedRole
+
             helpCommand
+
             command @'[Named "user" (Snowflake User)] "verify" $
-                \ctx userID -> case (ctx ^. #guild) of
+                \ctx userID -> case ctx ^. #guild of
                     Just guild -> do
                         info @Text $ "Manually verifying user " <> showtl userID
                         void . invoke $ AddGuildMemberRole guild userID vRole
                     Nothing -> do
                         info @Text "Can only verify users in guilds."
                         void $ tell @Text ctx "Can only verify users in guilds."
+
             command @'[] "verifyAll" $
-                \ctx -> case (ctx ^. #guild) of
+                \ctx -> case ctx ^. #guild of
                     Just guild -> do
                         hasPerm <- canVerify (ctx ^. #member)
-                        
-                        when (not hasPerm) $ do
-                            info @Text "ManageRole permission not found."
-                            void $ tell @Text ctx "Permission Denied"
 
-                        when hasPerm $ do
-                            info @Text "Manually verifying all users"
-                            P.embed $ print $ SM.toList (guild ^. #members)
-                            flip mapM_ (SM.elems (guild ^. #members)) $ \mem -> do
-                                if vRole `V.notElem` (mem ^. #roles)
-                                    then do
-                                        debug @Text "Add verified role"
-                                        void . invoke $ AddGuildMemberRole guild (mem ^. #id) vRole
-                                    else
-                                        debug @Text "Already had verified role"
+                        if hasPerm
+                            then do
+                                info @Text "Manually verifying all users"
+                                P.embed $ print $ SM.toList (guild ^. #members)
+                                forM_ (SM.elems (guild ^. #members)) $ \mem -> do
+                                    if vRole `V.notElem` (mem ^. #roles)
+                                        then do
+                                            debug @Text "Add verified role"
+                                            void . invoke $ AddGuildMemberRole guild (mem ^. #id) vRole
+                                        else
+                                            debug @Text "Already had verified role"
+                            else do
+                                info @Text "ManageRole permission not found."
+                                void $ tell @Text ctx "Permission Denied"
+
                     Nothing -> do
                         info @Text "Can only verify users in guilds."
                         void $ tell @Text ctx "Can only verify users in guilds."

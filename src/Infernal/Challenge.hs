@@ -1,35 +1,32 @@
 module Infernal.Challenge where
 
-import Calamity
-import           Control.Lens
-import Data.Bitraversable
-import Data.Maybe (fromMaybe)
-import Data.Text.Lazy
-import Data.Time.Clock (UTCTime, addUTCTime, getCurrentTime)
-import           GHC.Generics
-import Text.Read (readMaybe)
-import System.Random
+import           Calamity           (Guild, Snowflake, User)
+import           Control.Lens       ((^.))
+import           Data.Bitraversable (bisequence)
+import           Data.Text.Lazy     (Text, pack, unpack)
+import           Data.Time.Clock    (UTCTime, addUTCTime, getCurrentTime)
+import           GHC.Generics       (Generic)
+import           System.Random      (Random (randomR), getStdRandom)
+import           Text.Read          (readMaybe)
 
-import Infernal.Config
+import           Infernal.Config    (Config)
 
 type Question = (Int, Int)
 
 data Challenge = Challenge
-    { memberID :: Snowflake User
-    , guildID :: Snowflake Guild
-    , question :: Question
+    { memberID          :: Snowflake User
+    , guildID           :: Snowflake Guild
+    , question          :: Question
     , attemptsRemaining :: Int
-    , expiry :: UTCTime
+    , expiry            :: UTCTime
     } deriving (Show, Generic)
 
 mkChallenge :: Config
-    -> (Snowflake User)
-    -> (Snowflake Guild)
+    -> Snowflake User
+    -> Snowflake Guild
     -> IO Challenge
-mkChallenge config user guild = Challenge
-    <$> pure user
-    <*> pure guild
-    <*> mkQuestion
+mkChallenge config user guild = Challenge user guild
+    <$> mkQuestion
     <*> pure (config ^. #challengeAttempts)
     <*> fmap (addUTCTime allowance) getCurrentTime
     where
@@ -41,7 +38,7 @@ mkQuestion = bisequence (rand, rand)
         rand = getStdRandom $ randomR (1, 20)
 
 checkResponse :: Text -> Challenge -> Bool
-checkResponse msg c = fromMaybe False $
+checkResponse msg c = Just True ==
     fmap (\n -> n == x + y) mn
     where
         mn = readMaybe $ unpack msg

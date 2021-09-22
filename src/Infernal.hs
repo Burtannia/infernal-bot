@@ -1,38 +1,29 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 module Infernal where
 
-import           Calamity                       (BotC, Channel (DMChannel'),
-                                                 EventType (GuildMemberAddEvt, GuildMemberRemoveEvt, MessageCreateEvt),
+import           Calamity                       (EventType (GuildMemberAddEvt, GuildMemberRemoveEvt, MessageCreateEvt),
                                                  GuildRequest (AddGuildMemberRole, RemoveGuildMember),
-                                                 Member,
-                                                 PermissionsIn' (permissionsIn'),
                                                  Snowflake, Token (BotToken),
                                                  Upgradeable (upgrade), User,
                                                  defaultIntents,
                                                  intentGuildMembers,
                                                  intentGuildPresences, invoke,
-                                                 manageRoles, react, runBotIO,
-                                                 tell)
+                                                 react, runBotIO, tell)
 import           Calamity.Cache.InMemory        (runCacheInMemory)
 import           Calamity.Commands              (Named, addCommands, command,
                                                  helpCommand, useConstantPrefix)
 import           Calamity.Commands.Context      (useFullContext)
 import qualified Calamity.Internal.SnowflakeMap as SM
 import           Calamity.Metrics.Noop          (runMetricsNoop)
-import           Control.Concurrent             (MVar, newMVar, putMVar,
-                                                 takeMVar, threadDelay,
-                                                 withMVar)
+import           Control.Concurrent             (MVar, newMVar)
 import           Control.Lens                   (lazy, (&), (.~), (^.))
 import           Control.Monad                  (forM_, void, when)
 import qualified Data.Aeson                     as Aeson
-import           Data.Flags                     (containsAll, (.+.))
+import           Data.Flags                     ((.+.))
 import           Data.Foldable                  (for_)
 import           Data.Generics.Labels           ()
-import qualified Data.HashTable.IO              as H
 import           Data.Text.Lazy                 (Text)
-import           Data.Time.Clock                (UTCTime, getCurrentTime)
 import qualified Data.Vector.Unboxing           as V (notElem)
-import qualified Df1
 import qualified Di
 import           DiPolysemy                     (debug, info, runDiToIO,
                                                  warning)
@@ -42,21 +33,15 @@ import qualified Polysemy.Async                 as P
 import           System.Exit                    (die)
 import           TextShow                       (showtl)
 
-import           Infernal.Challenge             (Challenge, checkResponse,
-                                                 mkChallenge, showChallenge)
+import           Infernal.Challenge             (ChallengeMap, checkResponse,
+                                                 deleteChallenge, evictLoop,
+                                                 insertChallenge,
+                                                 lookupChallenge,
+                                                 mkChallengeMap, newChallenge,
+                                                 showChallenge)
 import           Infernal.Config                (CLIOptions, Config)
-
-type HashMap k v = H.BasicHashTable k v
-
-type ChallengeMap = HashMap (Snowflake User) Challenge
-
-mkChallengeMap :: IO ChallengeMap
-mkChallengeMap = H.new
-
-newtype ShowMsg a = ShowMsg a
-
-instance (Show a) => Df1.ToMessage (ShowMsg a) where
-    message (ShowMsg x) = Df1.message $ show x
+import           Infernal.Utils                 (canVerify, channelIsDM,
+                                                 isHuman)
 
 main :: IO ()
 main = do
@@ -67,59 +52,6 @@ main = do
     cfg <- Aeson.eitherDecodeFileStrict path >>= either die pure
     chvar <- mkChallengeMap >>= newMVar
     runBotWith cfg chvar
-
-minsToMicroSeconds :: Int -> Int
-minsToMicroSeconds mins = mins * 60 * 1000 * 1000
-
-expired :: Challenge -> UTCTime -> Bool
-expired challenge now = (challenge ^. #expiry) >= now
-
-evictLoop :: BotC r => MVar ChallengeMap -> Int -> P.Sem r ()
-evictLoop chvar sleepMins = do
-    evictExpired chvar
-    P.embed $ threadDelay $ minsToMicroSeconds sleepMins
-    evictLoop chvar sleepMins
-
-evictExpired :: BotC r => MVar ChallengeMap -> P.Sem r ()
-evictExpired chvar = do
-    info @Text "Evicting Starting"
-    now <- P.embed getCurrentTime
-    chs <- P.embed $ withMVar chvar H.toList
-    let toEvicts = [ (k,v) | (k,v) <- chs, v ^. #expiry >= now ]
-    chs' <- P.embed $ takeMVar chvar
-    forM_ toEvicts $ \(k,v) -> do
-        info @Text $ "Evicting " <> showtl k
-        P.embed $ H.delete chs' k
-        void . tell @Text k $ "You took too long to respond and will now be kicked."
-        void . invoke $ RemoveGuildMember (v ^. #guildID) k
-    P.embed $ putMVar chvar chs'
-    info @Text "Evicting Complete"
-
-channelIsDM :: Channel -> Bool
-channelIsDM (DMChannel' _) = True
-channelIsDM _              = False
-
-isHuman :: User -> Bool
-isHuman user = maybe True not (user ^. #bot)
-
-newChallenge :: MVar ChallengeMap -> Config -> Member -> IO Challenge
-newChallenge chvar cfg mem = do
-    let userID = mem ^. #id
-    ch <- mkChallenge cfg userID (mem ^. #guildID)
-    insertChallenge chvar userID ch
-    return ch
-
-insertChallenge :: MVar ChallengeMap -> Snowflake User -> Challenge -> IO ()
-insertChallenge chvar userID ch =
-    withMVar chvar $ \chs -> H.insert chs userID ch
-
-lookupChallenge :: MVar ChallengeMap -> Snowflake User -> IO (Maybe Challenge)
-lookupChallenge chvar userID =
-    withMVar chvar $ flip H.lookup userID
-
-deleteChallenge :: MVar ChallengeMap -> Snowflake User -> IO ()
-deleteChallenge chvar userID =
-    withMVar chvar $ flip H.delete userID
 
 runBotWith :: Config -> MVar ChallengeMap -> IO ()
 runBotWith cfg chvar = Di.new $ \di ->
@@ -226,9 +158,3 @@ runBotWith cfg chvar = Di.new $ \di ->
                     Nothing -> do
                         info @Text "Can only verify users in guilds."
                         void $ tell @Text ctx "Can only verify users in guilds."
-
-canVerify :: BotC r => Maybe Member -> P.Sem r Bool
-canVerify Nothing = return False
-canVerify (Just mem) = do
-    perms <- permissionsIn' (mem ^. #guildID) mem
-    return $ perms `containsAll` manageRoles

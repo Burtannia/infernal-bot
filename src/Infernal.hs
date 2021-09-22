@@ -25,6 +25,7 @@ import           Options.Generic hiding (Text)
 import qualified Data.HashTable.IO as H
 import Control.Concurrent.MVar
 import Control.Concurrent
+import TextShow (showtl)
 
 import Infernal.Challenge
 import Infernal.Config
@@ -100,9 +101,6 @@ channelIsDM _ = False
 isHuman :: User -> Bool
 isHuman user = fromMaybe True (user ^. #bot)
 
-tshow :: Show a => a -> Text
-tshow = pack . show
-
 newChallenge :: MVar ChallengeMap -> Config -> Member -> IO Challenge
 newChallenge chvar cfg mem = do
     let userID = mem ^. #id
@@ -139,14 +137,14 @@ runBotWith cfg chvar = Di.new $ \di ->
         info @Text "Bot starting up!"
 
         _ <- react @'GuildMemberAddEvt $ \mem -> do
-            info @Text "Member joined, sending challenge"
+            info @Text $ "Member " <> showtl (mem ^. #id) <> " joined, sending challenge"
             mguild <- upgrade (mem ^. #guildID)
             let guildName = fromMaybe "the guild" $ fmap (^. #name) mguild
             challenge <- P.embed $ newChallenge chvar cfg mem
             void . tell mem $ showChallenge guildName challenge
 
         _ <- react @'GuildMemberRemoveEvt $ \mem -> do
-            info @Text "Member left/removed"
+            info @Text $ "Member " <> showtl (mem ^. #id) <> " left/removed"
             P.embed $ deleteChallenge chvar (mem ^. #id)
 
         _ <- react @'MessageCreateEvt $ \msg -> do
@@ -155,7 +153,7 @@ runBotWith cfg chvar = Di.new $ \di ->
             let isDM = maybe False channelIsDM mchannel
             for_ muser $ \user ->
                 when (isDM && isHuman user) $ do
-                    info @Text "DM received"
+                    info @Text $ "DM received from " <> showtl (user ^. #id)
                     mc <- P.embed $ lookupChallenge chvar (user ^. #id)
                     for_ mc $ \challenge -> do
                         if checkResponse (msg ^. #content) challenge
@@ -180,10 +178,10 @@ runBotWith cfg chvar = Di.new $ \di ->
                                         void . invoke $ RemoveGuildMember (challenge ^. #guildID) (user ^. #id)
                                         -- Challenge is removed via GuildMemberRemove event handler
                                     else do
-                                        info @Text "Updating attempts"
+                                        debug @Text "Updating attempts"
                                         void $ tell @Text msg $
                                             "Incorrect, you have "
-                                            <> tshow remaining
+                                            <> showtl remaining
                                             <> " attempts remaining."
                                         P.embed $ insertChallenge chvar (user ^. #id)
                                             (challenge & #attemptsRemaining .~ remaining)
@@ -194,7 +192,7 @@ runBotWith cfg chvar = Di.new $ \di ->
             command @'[Named "user" (Snowflake User)] "verify" $
                 \ctx userID -> case (ctx ^. #guild) of
                     Just guild -> do
-                        info @Text "Manually verifying user"
+                        info @Text $ "Manually verifying user " <> showtl userID
                         void . invoke $ AddGuildMemberRole guild userID vRole
                     Nothing -> do
                         info @Text "Can only verify users in guilds."
@@ -212,12 +210,12 @@ runBotWith cfg chvar = Di.new $ \di ->
                             info @Text "Manually verifying all users"
                             P.embed $ print $ SM.toList (guild ^. #members)
                             flip mapM_ (SM.elems (guild ^. #members)) $ \mem -> do
-                                info @Text "For each member"
                                 if vRole `V.notElem` (mem ^. #roles)
                                     then do
-                                        info @Text "Add verified role"
+                                        debug @Text "Add verified role"
                                         void . invoke $ AddGuildMemberRole guild (mem ^. #id) vRole
-                                    else info @Text "Already had verified role"
+                                    else
+                                        debug @Text "Already had verified role"
                     Nothing -> do
                         info @Text "Can only verify users in guilds."
                         void $ tell @Text ctx "Can only verify users in guilds."

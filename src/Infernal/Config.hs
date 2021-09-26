@@ -15,6 +15,7 @@ instance ParseRecord (CLIOptions Wrapped)
 
 data Config = Config
     { botToken               :: Text
+    , database               :: Text
     , verifiedRole           :: Snowflake Role
     , commandPrefix          :: Text
     , challengeAttempts      :: Int

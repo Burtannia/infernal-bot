@@ -24,6 +24,7 @@ import           Data.Foldable                  (for_)
 import           Data.Generics.Labels           ()
 import           Data.Text.Lazy                 (Text)
 import qualified Data.Vector.Unboxing           as V (notElem)
+import qualified Database.Persist.Sqlite        as DB
 import qualified Di
 import           DiPolysemy                     (debug, info, runDiToIO,
                                                  warning)
@@ -40,6 +41,8 @@ import           Infernal.Challenge             (ChallengeMap, checkResponse,
                                                  mkChallengeMap, newChallenge,
                                                  showChallenge)
 import           Infernal.Config                (CLIOptions, Config)
+import           Infernal.Database              (db, runPersistWith)
+import           Infernal.Schema                (migrateAll)
 import           Infernal.Utils                 (canVerify, channelIsDM,
                                                  isHuman)
 
@@ -61,12 +64,14 @@ runBotWith cfg chvar = Di.new $ \di ->
     . runDiToIO di
     . runCacheInMemory
     . runMetricsNoop
+    . runPersistWith (cfg ^. #database)
     . useConstantPrefix (cfg ^. #commandPrefix . lazy)
     . useFullContext
     . runBotIO
         (BotToken (cfg ^. #botToken . lazy))
         (defaultIntents .+. intentGuildMembers .+. intentGuildPresences)
     $ do
+        db $ DB.runMigration migrateAll
         info @Text "Bot starting up!"
 
         P.asyncToIOFinal $ P.async $ evictLoop chvar (cfg ^. #challengeEvictScanMins)
@@ -94,23 +99,23 @@ runBotWith cfg chvar = Di.new $ \di ->
                         if checkResponse (msg ^. #content) challenge
                             then do
                                 info @Text "Correct response received"
-                                mguild <- upgrade (challenge ^. #guildID)
+                                mguild <- upgrade (challenge ^. #challengeGuildID)
                                 case mguild of
                                     Nothing -> do
                                         warning @Text "Guild from challenge was nothing"
                                     Just g -> do
                                         void . tell msg $ "Thank you! You are now verified in " <> (g ^. #name) <> "!"
-                                        void . invoke $ AddGuildMemberRole (challenge ^. #guildID) (user ^. #id) (cfg ^. #verifiedRole)
+                                        void . invoke $ AddGuildMemberRole (challenge ^. #challengeGuildID) (user ^. #id) (cfg ^. #verifiedRole)
                                         P.embed $ deleteChallenge chvar (user ^. #id)
                             else do
                                 info @Text "Incorrect response received"
-                                let remaining = (challenge ^. #attemptsRemaining) - 1
+                                let remaining = (challenge ^. #challengeAttemptsRemaining) - 1
                                 if remaining == 0
                                     then do
                                         info @Text "Challenge failure, attempts exhausted"
                                         void $ tell @Text msg
                                             "Incorrect, you are out of attempts and will now be kicked from the server."
-                                        void . invoke $ RemoveGuildMember (challenge ^. #guildID) (user ^. #id)
+                                        void . invoke $ RemoveGuildMember (challenge ^. #challengeGuildID) (user ^. #id)
                                         -- Challenge is removed via GuildMemberRemove event handler
                                     else do
                                         debug @Text "Updating attempts"
@@ -119,7 +124,7 @@ runBotWith cfg chvar = Di.new $ \di ->
                                             <> showtl remaining
                                             <> " attempts remaining."
                                         P.embed $ insertChallenge chvar (user ^. #id)
-                                            (challenge & #attemptsRemaining .~ remaining)
+                                            (challenge & #challengeAttemptsRemaining .~ remaining)
 
         addCommands $ do
             let vRole = cfg ^. #verifiedRole

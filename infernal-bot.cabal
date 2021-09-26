@@ -28,6 +28,9 @@ library
       Infernal
       Infernal.Challenge
       Infernal.Config
+      Infernal.Database
+      Infernal.Orphans
+      Infernal.Schema
       Infernal.Utils
   other-modules:
       Paths_infernal_bot
@@ -62,6 +65,7 @@ library
       aeson
     , base >=4.7 && <5
     , calamity ==0.1.30.*
+    , conduit
     , data-default
     , data-flags
     , df1
@@ -70,7 +74,10 @@ library
     , generic-lens
     , hashtables
     , lens
+    , monad-logger
     , optparse-generic
+    , persistent
+    , persistent-sqlite
     , polysemy
     , polysemy-plugin
     , random
@@ -91,6 +98,7 @@ executable infernal-bot-exe
       aeson
     , base >=4.7 && <5
     , calamity ==0.1.30.*
+    , conduit
     , data-default
     , data-flags
     , df1
@@ -100,7 +108,10 @@ executable infernal-bot-exe
     , hashtables
     , infernal-bot
     , lens
+    , monad-logger
     , optparse-generic
+    , persistent
+    , persistent-sqlite
     , polysemy
     , polysemy-plugin
     , random
@@ -122,6 +133,7 @@ test-suite infernal-bot-test
       aeson
     , base >=4.7 && <5
     , calamity ==0.1.30.*
+    , conduit
     , data-default
     , data-flags
     , df1
@@ -131,7 +143,10 @@ test-suite infernal-bot-test
     , hashtables
     , infernal-bot
     , lens
+    , monad-logger
     , optparse-generic
+    , persistent
+    , persistent-sqlite
     , polysemy
     , polysemy-plugin
     , random

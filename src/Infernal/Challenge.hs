@@ -7,7 +7,6 @@ import           Control.Lens       ((^.))
 import           Data.Bitraversable (bisequence)
 import           Data.Text.Lazy     (Text, pack, unpack)
 import           Data.Time.Clock    (UTCTime, addUTCTime, getCurrentTime)
-import           GHC.Generics       (Generic)
 import           System.Random      (Random (randomR), getStdRandom)
 import           Text.Read          (readMaybe)
 
@@ -17,19 +16,10 @@ import           Control.Monad      (forM_, void)
 import qualified Data.HashTable.IO  as H
 import           DiPolysemy         (info)
 import           Infernal.Config    (Config)
+import           Infernal.Schema    (Challenge (Challenge), Question)
 import           Infernal.Utils     (minsToMicroSeconds)
 import qualified Polysemy           as P
 import           TextShow           (TextShow (showtl))
-
-type Question = (Int, Int)
-
-data Challenge = Challenge
-    { memberID          :: Snowflake User
-    , guildID           :: Snowflake Guild
-    , question          :: Question
-    , attemptsRemaining :: Int
-    , expiry            :: UTCTime
-    } deriving (Show, Generic)
 
 mkChallenge :: Config
     -> Snowflake User
@@ -52,8 +42,8 @@ checkResponse msg c = Just True ==
     fmap (\n -> n == x + y) mn
     where
         mn = readMaybe $ unpack msg
-        x = fst (c ^. #question)
-        y = snd (c ^. #question)
+        x = fst (c ^. #challengeQuestion)
+        y = snd (c ^. #challengeQuestion)
 
 showChallenge :: Text -> Challenge -> Text
 showChallenge gName c =
@@ -62,7 +52,7 @@ showChallenge gName c =
     <> "In order to protect against bots we require you to answer a"
     <> " simple question before you're able to use the server chat."
     <> "\n\n"
-    <> "Your question is: " <> ppQuestion (c ^. #question)
+    <> "Your question is: " <> ppQuestion (c ^. #challengeQuestion)
     <> "\n\n"
     <> "Please type your answer below..."
 
@@ -73,7 +63,7 @@ ppQuestion (x,y) =
         tshow = pack . show
 
 expired :: Challenge -> UTCTime -> Bool
-expired challenge now = (challenge ^. #expiry) >= now
+expired challenge now = (challenge ^. #challengeExpiry) >= now
 
 type HashMap k v = H.BasicHashTable k v
 
@@ -112,12 +102,12 @@ evictExpired chvar = do
     info @Text "Evicting Starting"
     now <- P.embed getCurrentTime
     chs <- P.embed $ withMVar chvar H.toList
-    let toEvicts = [ (k,v) | (k,v) <- chs, v ^. #expiry >= now ]
+    let toEvicts = [ (k,v) | (k,v) <- chs, v ^. #challengeExpiry >= now ]
     chs' <- P.embed $ takeMVar chvar
     forM_ toEvicts $ \(k,v) -> do
         info @Text $ "Evicting " <> showtl k
         P.embed $ H.delete chs' k
         void . tell @Text k $ "You took too long to respond and will now be kicked."
-        void . invoke $ RemoveGuildMember (v ^. #guildID) k
+        void . invoke $ RemoveGuildMember (v ^. #challengeGuildID) k
     P.embed $ putMVar chvar chs'
     info @Text "Evicting Complete"

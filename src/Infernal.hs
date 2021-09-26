@@ -10,7 +10,7 @@ import           Calamity                       (EventType (GuildMemberAddEvt, G
                                                  intentGuildPresences, invoke,
                                                  react, runBotIO, tell)
 import           Calamity.Cache.InMemory        (runCacheInMemory)
-import           Calamity.Commands              (Named, addCommands, command,
+import           Calamity.Commands              (addCommands, command,
                                                  helpCommand, useConstantPrefix)
 import           Calamity.Commands.Context      (useFullContext)
 import qualified Calamity.Internal.SnowflakeMap as SM
@@ -131,7 +131,7 @@ runBotWith cfg chvar = Di.new $ \di ->
 
             helpCommand
 
-            command @'[Named "user" (Snowflake User)] "verify" $
+            command @'[Snowflake User] "verify" $
                 \ctx userID -> case ctx ^. #guild of
                     Just guild -> do
                         info @Text $ "Manually verifying user " <> showtl userID

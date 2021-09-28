@@ -1,9 +1,10 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 module Infernal where
 
-import           Calamity                       (EventType (GuildMemberAddEvt, GuildMemberRemoveEvt, MessageCreateEvt),
+import           Calamity                       (EventType (..),
                                                  GuildRequest (AddGuildMemberRole, RemoveGuildMember),
-                                                 Snowflake, Token (BotToken),
+                                                 Message, Snowflake,
+                                                 Token (BotToken),
                                                  Upgradeable (upgrade), User,
                                                  defaultIntents,
                                                  intentGuildMembers,
@@ -15,8 +16,7 @@ import           Calamity.Commands              (addCommands, command,
 import           Calamity.Commands.Context      (useFullContext)
 import qualified Calamity.Internal.SnowflakeMap as SM
 import           Calamity.Metrics.Noop          (runMetricsNoop)
-import           Control.Concurrent             (MVar, newMVar)
-import           Control.Lens                   (lazy, (&), (.~), (^.))
+import           Control.Lens                   (lazy, (^.))
 import           Control.Monad                  (forM_, void, when)
 import qualified Data.Aeson                     as Aeson
 import           Data.Flags                     ((.+.))
@@ -34,14 +34,14 @@ import qualified Polysemy.Async                 as P
 import           System.Exit                    (die)
 import           TextShow                       (showtl)
 
-import           Infernal.Challenge             (ChallengeMap, checkResponse,
-                                                 deleteChallenge, evictLoop,
-                                                 insertChallenge,
-                                                 lookupChallenge,
-                                                 mkChallengeMap, newChallenge,
-                                                 showChallenge)
+import           Infernal.Challenge             (ChallengeResult (..),
+                                                 checkChallenge,
+                                                 deleteChallenge,
+                                                 deleteChallenge', evictLoop,
+                                                 newChallenge, showChallenge)
 import           Infernal.Config                (CLIOptions, Config)
-import           Infernal.Database              (db, runPersistWith)
+import           Infernal.Database              (PersistBotC, db,
+                                                 runPersistWith)
 import           Infernal.Schema                (migrateAll)
 import           Infernal.Utils                 (canVerify, channelIsDM,
                                                  isHuman)
@@ -53,11 +53,10 @@ main = do
         Just path -> pure path
         Nothing   -> die "Error: no config specified"
     cfg <- Aeson.eitherDecodeFileStrict path >>= either die pure
-    chvar <- mkChallengeMap >>= newMVar
-    runBotWith cfg chvar
+    runBotWith cfg
 
-runBotWith :: Config -> MVar ChallengeMap -> IO ()
-runBotWith cfg chvar = Di.new $ \di ->
+runBotWith :: Config -> IO ()
+runBotWith cfg = Di.new $ \di ->
     void
     . P.runFinal
     . P.embedToFinal @IO
@@ -74,57 +73,29 @@ runBotWith cfg chvar = Di.new $ \di ->
         db $ DB.runMigration migrateAll
         info @Text "Bot starting up!"
 
-        P.asyncToIOFinal $ P.async $ evictLoop chvar (cfg ^. #challengeEvictScanMins)
+        P.asyncToIOFinal $ P.async $ evictLoop (cfg ^. #challengeEvictScanMins)
+
+        react @'GuildCreateEvt $ \g -> do
+            info @Text $ "GUILD CREATED"
 
         react @'GuildMemberAddEvt $ \mem -> do
             info @Text $ "Member " <> showtl (mem ^. #id) <> " joined, sending challenge"
             mguild <- upgrade (mem ^. #guildID)
             let guildName = maybe "the guild" (^. #name) mguild
-            challenge <- P.embed $ newChallenge chvar cfg mem
+            challenge <- newChallenge cfg mem
             void . tell mem $ showChallenge guildName challenge
 
         react @'GuildMemberRemoveEvt $ \mem -> do
             info @Text $ "Member " <> showtl (mem ^. #id) <> " left/removed"
-            P.embed $ deleteChallenge chvar (mem ^. #id)
+            deleteChallenge' (mem ^. #id)
 
         react @'MessageCreateEvt $ \msg -> do
             mchannel <- upgrade (msg ^. #channelID)
             muser <- upgrade (msg ^. #author)
             let isDM = maybe False channelIsDM mchannel
             for_ muser $ \user ->
-                when (isDM && isHuman user) $ do
-                    info @Text $ "DM received from " <> showtl (user ^. #id)
-                    mc <- P.embed $ lookupChallenge chvar (user ^. #id)
-                    for_ mc $ \challenge -> do
-                        if checkResponse (msg ^. #content) challenge
-                            then do
-                                info @Text "Correct response received"
-                                mguild <- upgrade (challenge ^. #challengeGuildID)
-                                case mguild of
-                                    Nothing -> do
-                                        warning @Text "Guild from challenge was nothing"
-                                    Just g -> do
-                                        void . tell msg $ "Thank you! You are now verified in " <> (g ^. #name) <> "!"
-                                        void . invoke $ AddGuildMemberRole (challenge ^. #challengeGuildID) (user ^. #id) (cfg ^. #verifiedRole)
-                                        P.embed $ deleteChallenge chvar (user ^. #id)
-                            else do
-                                info @Text "Incorrect response received"
-                                let remaining = (challenge ^. #challengeAttemptsRemaining) - 1
-                                if remaining == 0
-                                    then do
-                                        info @Text "Challenge failure, attempts exhausted"
-                                        void $ tell @Text msg
-                                            "Incorrect, you are out of attempts and will now be kicked from the server."
-                                        void . invoke $ RemoveGuildMember (challenge ^. #challengeGuildID) (user ^. #id)
-                                        -- Challenge is removed via GuildMemberRemove event handler
-                                    else do
-                                        debug @Text "Updating attempts"
-                                        void $ tell @Text msg $
-                                            "Incorrect, you have "
-                                            <> showtl remaining
-                                            <> " attempts remaining."
-                                        P.embed $ insertChallenge chvar (user ^. #id)
-                                            (challenge & #challengeAttemptsRemaining .~ remaining)
+                when (isDM && isHuman user) $
+                    runChallengeCheck cfg user msg
 
         addCommands $ do
             let vRole = cfg ^. #verifiedRole
@@ -136,6 +107,7 @@ runBotWith cfg chvar = Di.new $ \di ->
                     Just guild -> do
                         info @Text $ "Manually verifying user " <> showtl userID
                         void . invoke $ AddGuildMemberRole guild userID vRole
+                        deleteChallenge' userID
                     Nothing -> do
                         info @Text "Can only verify users in guilds."
                         void $ tell @Text ctx "Can only verify users in guilds."
@@ -154,6 +126,7 @@ runBotWith cfg chvar = Di.new $ \di ->
                                         then do
                                             debug @Text "Add verified role"
                                             void . invoke $ AddGuildMemberRole guild (mem ^. #id) vRole
+                                            deleteChallenge' (mem ^. #id)
                                         else
                                             debug @Text "Already had verified role"
                             else do
@@ -163,3 +136,41 @@ runBotWith cfg chvar = Di.new $ \di ->
                     Nothing -> do
                         info @Text "Can only verify users in guilds."
                         void $ tell @Text ctx "Can only verify users in guilds."
+
+runChallengeCheck :: PersistBotC r => Config -> User -> Message -> P.Sem r ()
+runChallengeCheck cfg user msg = do
+    let userID = user ^. #id
+    info @Text $ "DM received from " <> showtl userID
+    res <- checkChallenge userID (msg ^. #content)
+    case res of
+        NotFound -> do
+            void . tell @Text msg $
+                "Sorry, we were unable to verify you."
+                <> " Please try leaving the guild and rejoining. (Error code: 1)"
+
+        Incorrect ch rem
+            | rem > 0 -> do
+                void $ tell @Text msg $
+                    "Incorrect, you have "
+                    <> showtl rem
+                    <> " attempts remaining."
+            | otherwise -> do
+                info @Text "Challenge failure, attempts exhausted"
+                void $ tell @Text msg
+                    "Incorrect, you are out of attempts and will now be kicked from the server."
+                void . invoke $ RemoveGuildMember (ch ^. #challengeGuildID) userID
+                -- Challenge is removed via GuildMemberRemove event handler
+
+        Correct ch -> do
+            let guildID = ch ^. #challengeGuildID
+            mguild <- upgrade guildID
+            case mguild of
+                Nothing -> do
+                    warning @Text "Guild from challenge was nothing (this shouldn't happen)"
+                    void . tell @Text msg $
+                        "Sorry, we were unable to verify you."
+                        <> " Please try leaving the guild and rejoining. (Error code: 2)"
+                Just g -> do
+                    void . tell msg $ "Thank you! You are now verified in " <> (g ^. #name) <> "!"
+                    void . invoke $ AddGuildMemberRole guildID userID (cfg ^. #verifiedRole)
+                    deleteChallenge user

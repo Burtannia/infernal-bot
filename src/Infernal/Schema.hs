@@ -35,7 +35,7 @@ share
             attemptsRemaining Int
             expiry UTCTime
 
-            UniqueGuildMember memberID guildID
+            UniqueMember memberID
 
             deriving Show
             deriving Generic

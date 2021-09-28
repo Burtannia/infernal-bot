@@ -1,10 +1,13 @@
+{-# LANGUAGE ConstraintKinds #-}
+
 module Infernal.Database
     ( Persistable (..)
     , db
     , db_
     , runPersistWith
-    ) where
+    , PersistBotC) where
 
+import           Calamity                (BotC)
 import           Conduit                 (ResourceT, runResourceT)
 import           Control.Monad           (void)
 import           Control.Monad.Logger    (LoggingT, runStdoutLoggingT)
@@ -12,6 +15,8 @@ import           Data.Text               (Text)
 import           Database.Persist.Sqlite (SqlPersistT, runSqlConn,
                                           withSqliteConn)
 import qualified Polysemy                as P
+
+type PersistBotC r = (BotC r, P.Members '[ Persistable ]r )
 
 type DatabaseAction a = SqlPersistT (LoggingT (ResourceT IO)) a
 

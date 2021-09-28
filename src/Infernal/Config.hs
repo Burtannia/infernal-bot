@@ -1,6 +1,6 @@
 module Infernal.Config where
 
-import           Calamity             (Role, Snowflake)
+import           Calamity             (Guild, Role, Snowflake)
 import           Data.Aeson           (FromJSON, ToJSON)
 import           Data.Generics.Labels ()
 import           GHC.Generics         (Generic)
@@ -16,6 +16,7 @@ instance ParseRecord (CLIOptions Wrapped)
 data Config = Config
     { botToken               :: Text
     , database               :: Text
+    , guildID                :: Snowflake Guild
     , verifiedRole           :: Snowflake Role
     , commandPrefix          :: Text
     , challengeAttempts      :: Int

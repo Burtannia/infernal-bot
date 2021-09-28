@@ -6,7 +6,8 @@ import           Calamity                       (EventType (..),
                                                  Message, Snowflake,
                                                  Token (BotToken),
                                                  Upgradeable (upgrade), User,
-                                                 defaultIntents,
+                                                 UserRequest (LeaveGuild),
+                                                 defaultIntents, getID,
                                                  intentGuildMembers,
                                                  intentGuildPresences, invoke,
                                                  react, runBotIO, tell)
@@ -75,8 +76,11 @@ runBotWith cfg = Di.new $ \di ->
 
         P.asyncToIOFinal $ P.async $ evictLoop (cfg ^. #challengeEvictScanMins)
 
-        react @'GuildCreateEvt $ \g -> do
-            info @Text $ "GUILD CREATED"
+        react @'GuildCreateEvt $ \(g, _) -> do
+            let joinedID = getID g
+            when (joinedID /= (cfg ^. #guildID)) $ do
+                warning @Text $ "Leaving unauthorized guild: " <> showtl joinedID
+                void . invoke $ LeaveGuild g
 
         react @'GuildMemberAddEvt $ \mem -> do
             info @Text $ "Member " <> showtl (mem ^. #id) <> " joined, sending challenge"

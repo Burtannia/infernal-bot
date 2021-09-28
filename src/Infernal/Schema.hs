@@ -7,7 +7,7 @@
 
 module Infernal.Schema where
 
-import           Calamity             (Guild, Snowflake, User)
+import           Calamity             (Guild, Role, Snowflake, User)
 import           Calamity.Commands    ()
 import           Control.Applicative  ()
 import           Data.Aeson           ()

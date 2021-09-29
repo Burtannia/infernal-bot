@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 module Infernal where
 
-import           Calamity                       (EventType (..),
+import           Calamity                       (EventType (..), Guild,
                                                  GuildRequest (AddGuildMemberRole, RemoveGuildMember),
                                                  Message, Snowflake,
                                                  Token (BotToken),
@@ -18,7 +18,7 @@ import           Calamity.Commands.Context      (useFullContext)
 import qualified Calamity.Internal.SnowflakeMap as SM
 import           Calamity.Metrics.Noop          (runMetricsNoop)
 import           Control.Lens                   (lazy, (^.))
-import           Control.Monad                  (forM_, void, when)
+import           Control.Monad                  (forM_, unless, void, when)
 import qualified Data.Aeson                     as Aeson
 import           Data.Flags                     ((.+.))
 import           Data.Foldable                  (for_)
@@ -46,6 +46,7 @@ import           Infernal.Database              (PersistBotC, db,
 import           Infernal.Schema                (migrateAll)
 import           Infernal.Utils                 (canVerify, channelIsDM,
                                                  isHuman)
+import qualified Polysemy.Reader                as P
 
 main :: IO ()
 main = do
@@ -61,6 +62,7 @@ runBotWith cfg = Di.new $ \di ->
     void
     . P.runFinal
     . P.embedToFinal @IO
+    . P.runReader cfg
     . runDiToIO di
     . runCacheInMemory
     . runMetricsNoop
@@ -74,6 +76,12 @@ runBotWith cfg = Di.new $ \di ->
         db $ DB.runMigration migrateAll
         info @Text "Bot starting up!"
 
+        guild <- do
+            mg <- upgrade (cfg ^. #guildID)
+            maybe (P.embed $ die "Invalid config guild") pure mg
+
+        unless (cfg ^. #firstTimeStart) $ challengeNewMembers guild
+
         P.asyncToIOFinal $ P.async $ evictLoop (cfg ^. #challengeEvictScanMins)
 
         react @'GuildCreateEvt $ \(g, _) -> do
@@ -86,7 +94,7 @@ runBotWith cfg = Di.new $ \di ->
             info @Text $ "Member " <> showtl (mem ^. #id) <> " joined, sending challenge"
             mguild <- upgrade (mem ^. #guildID)
             let guildName = maybe "the guild" (^. #name) mguild
-            challenge <- newChallenge cfg mem
+            challenge <- newChallenge mem
             void . tell mem $ showChallenge guildName challenge
 
         react @'GuildMemberRemoveEvt $ \mem -> do
@@ -99,7 +107,7 @@ runBotWith cfg = Di.new $ \di ->
             let isDM = maybe False channelIsDM mchannel
             for_ muser $ \user ->
                 when (isDM && isHuman user) $
-                    runChallengeCheck cfg user msg
+                    runChallengeCheck user msg
 
         addCommands $ do
             let vRole = cfg ^. #verifiedRole
@@ -124,7 +132,6 @@ runBotWith cfg = Di.new $ \di ->
                         if hasPerm
                             then do
                                 info @Text "Manually verifying all users"
-                                P.embed $ print $ SM.toList (guild ^. #members)
                                 forM_ (SM.elems (guild ^. #members)) $ \mem -> do
                                     if vRole `V.notElem` (mem ^. #roles)
                                         then do
@@ -141,8 +148,9 @@ runBotWith cfg = Di.new $ \di ->
                         info @Text "Can only verify users in guilds."
                         void $ tell @Text ctx "Can only verify users in guilds."
 
-runChallengeCheck :: PersistBotC r => Config -> User -> Message -> P.Sem r ()
-runChallengeCheck cfg user msg = do
+runChallengeCheck :: PersistBotC r => User -> Message -> P.Sem r ()
+runChallengeCheck user msg = do
+    cfg <- P.ask @Config
     let userID = user ^. #id
     info @Text $ "DM received from " <> showtl userID
     res <- checkChallenge userID (msg ^. #content)
@@ -178,3 +186,16 @@ runChallengeCheck cfg user msg = do
                     void . tell msg $ "Thank you! You are now verified in " <> (g ^. #name) <> "!"
                     void . invoke $ AddGuildMemberRole guildID userID (cfg ^. #verifiedRole)
                     deleteChallenge user
+
+challengeNewMembers :: PersistBotC r => Guild -> P.Sem r ()
+challengeNewMembers guild = do
+    cfg <- P.ask @Config
+    let vRole = cfg ^. #verifiedRole
+    forM_ (SM.elems (guild ^. #members)) $ \mem -> do
+        if vRole `V.notElem` (mem ^. #roles)
+            then do
+                debug @Text "Add verified role"
+                challenge <- newChallenge mem
+                void . tell mem $ showChallenge (guild ^. #name) challenge
+            else
+                debug @Text "Already had verified role"

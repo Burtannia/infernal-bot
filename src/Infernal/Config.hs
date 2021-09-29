@@ -22,5 +22,6 @@ data Config = Config
     , challengeAttempts      :: Int
     , challengeEvictMins     :: Int
     , challengeEvictScanMins :: Int
+    , firstTimeStart         :: Bool
     } deriving (Show, Eq, Generic)
       deriving anyclass (FromJSON, ToJSON)

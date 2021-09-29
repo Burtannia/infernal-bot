@@ -22,6 +22,7 @@ import           Infernal.Schema    (Challenge (Challenge),
                                      Question, Unique (UniqueMember))
 import           Infernal.Utils     (minsToMicroSeconds)
 import qualified Polysemy           as P
+import qualified Polysemy.Reader    as P
 import           TextShow           (TextShow (showtl))
 
 data ChallengeResult = NotFound | Incorrect Challenge Int | Correct Challenge
@@ -73,11 +74,12 @@ expired challenge now = (challenge ^. #challengeExpiry) >= now
 
 -- Database Stuff
 
-newChallenge :: PersistBotC r => Config -> Member -> P.Sem r Challenge
-newChallenge cfg mem = newChallenge' cfg (mem ^. #id) (mem ^. #guildID)
+newChallenge :: PersistBotC r => Member -> P.Sem r Challenge
+newChallenge mem = newChallenge' (mem ^. #id) (mem ^. #guildID)
 
-newChallenge' :: PersistBotC r => Config -> Snowflake User -> Snowflake Guild -> P.Sem r Challenge
-newChallenge' cfg userID guildID = do
+newChallenge' :: PersistBotC r => Snowflake User -> Snowflake Guild -> P.Sem r Challenge
+newChallenge' userID guildID = do
+    cfg <- P.ask @Config
     mch <- db $ getBy $ UniqueMember userID
     case mch of
         Nothing -> do

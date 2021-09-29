@@ -14,9 +14,11 @@ import           Control.Monad.Logger    (LoggingT, runStdoutLoggingT)
 import           Data.Text               (Text)
 import           Database.Persist.Sqlite (SqlPersistT, runSqlConn,
                                           withSqliteConn)
+import           Infernal.Config         (Config)
 import qualified Polysemy                as P
+import qualified Polysemy.Reader         as P
 
-type PersistBotC r = (BotC r, P.Members '[ Persistable ]r )
+type PersistBotC r = (BotC r, P.Members '[ Persistable, P.Reader Config ] r )
 
 type DatabaseAction a = SqlPersistT (LoggingT (ResourceT IO)) a
 

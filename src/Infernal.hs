@@ -12,7 +12,7 @@ import           Calamity                       (EventType (..), Guild,
                                                  intentGuildPresences, invoke,
                                                  react, runBotIO, tell)
 import           Calamity.Cache.InMemory        (runCacheInMemory)
-import           Calamity.Commands              (addCommands, command,
+import           Calamity.Commands              (Named, addCommands, command,
                                                  helpCommand, useConstantPrefix)
 import           Calamity.Commands.Context      (useFullContext)
 import qualified Calamity.Internal.SnowflakeMap as SM
@@ -76,19 +76,17 @@ runBotWith cfg = Di.new $ \di ->
         db $ DB.runMigration migrateAll
         info @Text "Bot starting up!"
 
-        guild <- do
-            mg <- upgrade (cfg ^. #guildID)
-            maybe (P.embed $ die "Invalid config guild") pure mg
-
-        unless (cfg ^. #firstTimeStart) $ challengeNewMembers guild
-
         P.asyncToIOFinal $ P.async $ evictLoop (cfg ^. #challengeEvictScanMins)
 
         react @'GuildCreateEvt $ \(g, _) -> do
             let joinedID = getID g
-            when (joinedID /= (cfg ^. #guildID)) $ do
-                warning @Text $ "Leaving unauthorized guild: " <> showtl joinedID
-                void . invoke $ LeaveGuild g
+            if joinedID == (cfg ^. #guildID)
+                then do
+                    debug @Text "Joined config guild"
+                    unless (cfg ^. #firstTimeStart) $ challengeNewMembers g
+                else do
+                    warning @Text $ "Leaving unauthorized guild: " <> showtl joinedID
+                    void . invoke $ LeaveGuild g
 
         react @'GuildMemberAddEvt $ \mem -> do
             info @Text $ "Member " <> showtl (mem ^. #id) <> " joined, sending challenge"
@@ -114,10 +112,11 @@ runBotWith cfg = Di.new $ \di ->
 
             helpCommand
 
-            command @'[Snowflake User] "verify" $
+            command @'[Named "user" (Snowflake User)] "verify" $
                 \ctx userID -> case ctx ^. #guild of
                     Just guild -> do
                         info @Text $ "Manually verifying user " <> showtl userID
+                        info @Text $ "GUILD: " <> showtl (guild ^. #id)
                         void . invoke $ AddGuildMemberRole guild userID vRole
                         deleteChallenge' userID
                     Nothing -> do
@@ -189,6 +188,7 @@ runChallengeCheck user msg = do
 
 challengeNewMembers :: PersistBotC r => Guild -> P.Sem r ()
 challengeNewMembers guild = do
+    debug @Text "Challenging New Members"
     cfg <- P.ask @Config
     let vRole = cfg ^. #verifiedRole
     forM_ (SM.elems (guild ^. #members)) $ \mem -> do

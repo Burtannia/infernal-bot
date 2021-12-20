@@ -35,6 +35,8 @@ import qualified Polysemy.Async                 as P
 import           System.Exit                    (die)
 import           TextShow                       (showtl)
 
+import           Database.Persist               (PersistQueryRead (count),
+                                                 (==.))
 import           Infernal.Challenge             (ChallengeResult (..),
                                                  checkChallenge,
                                                  deleteChallenge,
@@ -43,7 +45,8 @@ import           Infernal.Challenge             (ChallengeResult (..),
 import           Infernal.Config                (CLIOptions, Config)
 import           Infernal.Database              (PersistBotC, db,
                                                  runPersistWith)
-import           Infernal.Schema                (migrateAll)
+import           Infernal.Schema                (EntityField (ChallengeGuildID),
+                                                 migrateAll)
 import           Infernal.Utils                 (canVerify, channelIsDM,
                                                  isHuman)
 import qualified Polysemy.Reader                as P
@@ -147,6 +150,16 @@ runBotWith cfg = Di.new $ \di ->
                         info @Text "Can only verify users in guilds."
                         void $ tell @Text ctx "Can only verify users in guilds."
 
+            command @'[] "countChallenges" $
+                \ctx -> case ctx ^. #guild of
+                    Just guild -> do
+                        info @Text "Counting challenges"
+                        n <- db $ count [ChallengeGuildID ==. guild ^. #id]
+                        void $ tell @Text ctx $ showtl n
+                    Nothing -> do
+                        info @Text "Can only count challenges in guilds"
+                        void $ tell @Text ctx "Can only count challenges in guilds"
+
 runChallengeCheck :: PersistBotC r => User -> Message -> P.Sem r ()
 runChallengeCheck user msg = do
     cfg <- P.ask @Config
@@ -194,7 +207,7 @@ challengeNewMembers guild = do
     forM_ (SM.elems (guild ^. #members)) $ \mem -> do
         if vRole `V.notElem` (mem ^. #roles)
             then do
-                debug @Text "Add verified role"
+                debug @Text "Challenge new member"
                 challenge <- newChallenge mem
                 void . tell mem $ showChallenge (guild ^. #name) challenge
             else

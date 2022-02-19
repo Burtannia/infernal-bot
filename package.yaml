@@ -39,9 +39,10 @@ dependencies:
 - df1
 - unboxing-vector
 - persistent
-- persistent-sqlite
+- persistent-postgresql
 - monad-logger
 - conduit
+- bytestring
 
 library:
   source-dirs: src

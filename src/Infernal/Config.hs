@@ -13,9 +13,17 @@ newtype CLIOptions w = Options
 
 instance ParseRecord (CLIOptions Wrapped)
 
+data DatabaseConfig = DatabaseConfig
+    { dbUser :: Text
+    , dbPass :: Text
+    , dbHost :: Text
+    , dbPort :: Text
+    } deriving (Show, Eq, Generic)
+      deriving anyclass (FromJSON, ToJSON)
+
 data Config = Config
     { botToken               :: Text
-    , database               :: Text
+    , database               :: DatabaseConfig
     , guildID                :: Snowflake Guild
     , verifiedRole           :: Snowflake Role
     , commandPrefix          :: Text

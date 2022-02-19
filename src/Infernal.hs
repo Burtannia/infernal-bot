@@ -25,7 +25,7 @@ import           Data.Foldable                  (for_)
 import           Data.Generics.Labels           ()
 import           Data.Text.Lazy                 (Text)
 import qualified Data.Vector.Unboxing           as V (notElem)
-import qualified Database.Persist.Sqlite        as DB
+import qualified Database.Persist.Postgresql    as DB
 import qualified Di
 import           DiPolysemy                     (debug, info, runDiToIO,
                                                  warning)
@@ -43,7 +43,7 @@ import           Infernal.Challenge             (ChallengeResult (..),
                                                  deleteChallenge', evictLoop,
                                                  newChallenge, showChallenge)
 import           Infernal.Config                (CLIOptions, Config)
-import           Infernal.Database              (PersistBotC, db,
+import           Infernal.Database              (PersistBotC, db, mkConnString,
                                                  runPersistWith)
 import           Infernal.Schema                (EntityField (ChallengeGuildID),
                                                  migrateAll)
@@ -69,7 +69,7 @@ runBotWith cfg = Di.new $ \di ->
     . runDiToIO di
     . runCacheInMemory
     . runMetricsNoop
-    . runPersistWith (cfg ^. #database)
+    . runPersistWith (mkConnString (cfg ^. #database))
     . useConstantPrefix (cfg ^. #commandPrefix . lazy)
     . useFullContext
     . runBotIO
@@ -115,7 +115,7 @@ runBotWith cfg = Di.new $ \di ->
 
             helpCommand
 
-            command @'[Named "user" (Snowflake User)] "verify" $
+            command @'[Named "userID" (Snowflake User)] "verify" $
                 \ctx userID -> case ctx ^. #guild of
                     Just guild -> do
                         info @Text $ "Manually verifying user " <> showtl userID
@@ -125,7 +125,8 @@ runBotWith cfg = Di.new $ \di ->
                     Nothing -> do
                         info @Text "Can only verify users in guilds."
                         void $ tell @Text ctx "Can only verify users in guilds."
-
+            command @'[] "hello" $ \ctx -> do
+                void $ tell @Text ctx "heya"
             command @'[] "verifyAll" $
                 \ctx -> case ctx ^. #guild of
                     Just guild -> do
@@ -193,7 +194,7 @@ runChallengeCheck user msg = do
                     warning @Text "Guild from challenge was nothing (this shouldn't happen)"
                     void . tell @Text msg $
                         "Sorry, we were unable to verify you."
-                        <> " Please try leaving the guild and rejoining. (Error code: 2)"
+                        <> " Please try leaving the server and rejoining. (Error code: 2)"
                 Just g -> do
                     void . tell msg $ "Thank you! You are now verified in " <> (g ^. #name) <> "!"
                     void . invoke $ AddGuildMemberRole guildID userID (cfg ^. #verifiedRole)
